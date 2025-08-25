@@ -9,8 +9,16 @@
 <body>
     <div id="app">
         <div id="sidebar">
-            <div class="node-palette-item" draggable="true" data-node-type="start">Start</div>
-            <div class="node-palette-item" draggable="true" data-node-type="simple">Simple Node</div>
+            <div class="sidebar-section">
+                <div class="node-palette-item" draggable="true" data-node-type="start">Start</div>
+                <div class="node-palette-item" draggable="true" data-node-type="simple">Simple Node</div>
+                <div class="node-palette-item" draggable="true" data-node-type="http">HTTP Request</div>
+            </div>
+            <div class="sidebar-section">
+                <button id="save-btn">Save</button>
+                <button id="load-btn">Load</button>
+                <button id="run-btn" class="run-button">Run</button>
+            </div>
         </div>
         <div id="canvas-container">
             <canvas id="canvas"></canvas>
