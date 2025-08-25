@@ -8,6 +8,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadBtn = document.getElementById('load-btn');
     const runBtn = document.getElementById('run-btn');
 
+    const CORS_PROXY_URL = 'https://corsproxy.io/?';
+
     const style = getComputedStyle(document.documentElement);
     const nodeColors = {
         bodyBg: style.getPropertyValue('--node-body-bg'),
@@ -98,11 +100,37 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         for (const node of executionPath) {
-            console.log(`Executing node: ${node.properties.find(p => p.name === 'name').value}`);
-            console.log('Properties:', node.properties);
+            const nodeName = node.properties.find(p => p.name === 'name').value;
+            console.log(`%cExecuting node: ${nodeName}`, 'font-weight: bold; color: blue;');
 
             executingNodeIds.push(node.id);
             draw();
+
+            if (node.type === 'http') {
+                const urlProp = node.properties.find(p => p.name === 'url');
+                const methodProp = node.properties.find(p => p.name === 'method');
+                const useProxyProp = node.properties.find(p => p.name === 'useProxy');
+
+                let targetUrl = urlProp.value;
+                if (useProxyProp.value) {
+                    targetUrl = CORS_PROXY_URL + encodeURIComponent(targetUrl);
+                    console.log(`Using CORS proxy. Final URL: ${targetUrl}`);
+                }
+
+                try {
+                    const response = await fetch(targetUrl, { method: methodProp.value });
+                    console.log(`Response from ${nodeName}:`, response.status, response.statusText);
+                    const data = await response.text();
+                    console.log('Response data:', data.substring(0, 200) + '...'); // Log first 200 chars
+                } catch (error) {
+                    console.error(`Error executing ${nodeName}:`, error);
+                }
+
+            } else {
+                // Generic execution for other nodes
+                console.log('Properties:', node.properties);
+            }
+
             await new Promise(resolve => setTimeout(resolve, 500));
             executingNodeIds = executingNodeIds.filter(id => id !== node.id);
             draw();
@@ -214,18 +242,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
             node.properties.forEach(prop => {
                 content += `<div class="property">`;
-                content += `<label for="prop-${prop.name}">${prop.label}</label>`;
 
-                if (prop.type === 'textarea') {
-                    content += `<textarea id="prop-${prop.name}" data-name="${prop.name}" rows="3">${prop.value}</textarea>`;
-                } else if (prop.type === 'select') {
-                    content += `<select id="prop-${prop.name}" data-name="${prop.name}">`;
-                    prop.options.forEach(option => {
-                        content += `<option value="${option}" ${option === prop.value ? 'selected' : ''}>${option}</option>`;
-                    });
-                    content += `</select>`;
+                if (prop.type === 'checkbox') {
+                    content += `<label><input type="checkbox" data-name="${prop.name}" ${prop.value ? 'checked' : ''}> ${prop.label}</label>`;
                 } else {
-                    content += `<input type="text" id="prop-${prop.name}" data-name="${prop.name}" value="${prop.value}">`;
+                    content += `<label for="prop-${prop.name}">${prop.label}</label>`;
+                    if (prop.type === 'textarea') {
+                        content += `<textarea id="prop-${prop.name}" data-name="${prop.name}" rows="3">${prop.value}</textarea>`;
+                    } else if (prop.type === 'select') {
+                        content += `<select id="prop-${prop.name}" data-name="${prop.name}">`;
+                        prop.options.forEach(option => {
+                            content += `<option value="${option}" ${option === prop.value ? 'selected' : ''}>${option}</option>`;
+                        });
+                        content += `</select>`;
+                    } else {
+                        content += `<input type="text" id="prop-${prop.name}" data-name="${prop.name}" value="${prop.value}">`;
+                    }
                 }
                 content += `</div>`;
             });
@@ -243,7 +275,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const propName = e.target.dataset.name;
             const prop = node.properties.find(p => p.name === propName);
             if (prop) {
-                prop.value = e.target.value;
+                if (e.target.type === 'checkbox') {
+                    prop.value = e.target.checked;
+                } else {
+                    prop.value = e.target.value;
+                }
+
                 if (prop.name === 'name') {
                     draw();
                 }
@@ -308,6 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
                  baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'HTTP Request' });
                  baseNode.properties.push({ name: 'method', label: 'Method', type: 'select', value: 'GET', options: ['GET', 'POST', 'PUT', 'DELETE'] });
                  baseNode.properties.push({ name: 'url', label: 'URL', type: 'textarea', value: 'https://example.com' });
+                 baseNode.properties.push({ name: 'useProxy', label: 'Use CORS Proxy', type: 'checkbox', value: false });
                 break;
         }
         return baseNode;
