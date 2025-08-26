@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
             simple: style.getPropertyValue('--node-simple-header-bg'),
             http: style.getPropertyValue('--node-http-header-bg'),
             branch: style.getPropertyValue('--node-branch-header-bg'),
+            merge: style.getPropertyValue('--node-merge-header-bg'),
         }
     };
 
@@ -75,6 +76,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function getValueFromPath(obj, path) {
+        if (!path) return undefined;
+        return path.split('.').reduce((acc, part) => acc && acc[part], obj);
+    }
+
     async function executeNode(node, inputData) {
         let outputData = { ...inputData };
         try {
@@ -118,7 +124,27 @@ document.addEventListener('DOMContentLoaded', () => {
             executingNodeIds = executingNodeIds.filter(id => id !== node.id);
             draw();
 
-            const outgoingConnections = connections.filter(c => c.from.nodeId === node.id);
+            let outgoingConnections = connections.filter(c => c.from.nodeId === node.id);
+
+            if (node.type === 'branch') {
+                const pathProp = node.properties.find(p => p.name === 'path').value;
+                const comparisonProp = node.properties.find(p => p.name === 'comparison').value;
+                const valueProp = node.properties.find(p => p.name === 'value').value;
+
+                const dataValue = getValueFromPath(outputData, pathProp);
+                let conditionResult = false;
+                switch (comparisonProp) {
+                    case 'equals': conditionResult = (String(dataValue) == valueProp); break;
+                    case 'notEquals': conditionResult = (String(dataValue) != valueProp); break;
+                    case 'contains': conditionResult = String(dataValue).includes(valueProp); break;
+                    case 'greaterThan': conditionResult = (Number(dataValue) > Number(valueProp)); break;
+                    case 'lessThan': conditionResult = (Number(dataValue) < Number(valueProp)); break;
+                }
+
+                const resultConnectorId = conditionResult ? 'output_true' : 'output_false';
+                outgoingConnections = outgoingConnections.filter(c => c.from.connectorId === resultConnectorId);
+            }
+
             const nextTasks = outgoingConnections.map(conn => {
                 const nextNode = nodes.find(n => n.id === conn.to.nodeId);
                 return runFrom(nextNode, outputData);
@@ -147,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         runBtn.disabled = true;
-        await runFrom(startNode, {});
+        await runFrom(startNode, { "initialValue": "hello world" });
         console.log('Workflow execution finished.');
         runBtn.disabled = false;
     }
@@ -181,22 +207,19 @@ document.addEventListener('DOMContentLoaded', () => {
     function drawGrid() {
         ctx.strokeStyle = '#ddd';
         ctx.lineWidth = 1 / scale;
-
         const left = -panOffset.x / scale;
         const top = -panOffset.y / scale;
         const right = (canvas.width - panOffset.x) / scale;
         const bottom = (canvas.height - panOffset.y) / scale;
-
         const startX = Math.floor(left / GRID_SIZE) * GRID_SIZE;
         const startY = Math.floor(top / GRID_SIZE) * GRID_SIZE;
-
         ctx.beginPath();
         for (let x = startX; x < right; x += GRID_SIZE) {
             ctx.moveTo(x, top);
             ctx.lineTo(x, bottom);
         }
         for (let y = startY; y < bottom; y += GRID_SIZE) {
-            ctx.moveTo(left, right);
+            ctx.moveTo(left, y);
             ctx.lineTo(right, y);
         }
         ctx.stroke();
@@ -261,11 +284,10 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.strokeRect(node.x, node.y, node.width, node.height);
 
             ctx.fillStyle = nodeColors.text;
-            ctx.font = `${14 / scale}px sans-serif`;
+            ctx.font = `${12 / scale}px sans-serif`;
             ctx.textAlign = 'center';
             const displayName = node.properties.find(p => p.name === 'name')?.value || node.type;
-            ctx.fillText(displayName, node.x + node.width / 2, node.y + headerHeight / 2 + (5 / scale));
-            ctx.textAlign = 'left';
+            ctx.fillText(displayName, node.x + node.width / 2, node.y + headerHeight / 2 + 4);
 
             [...node.inputs, ...node.outputs].forEach(connector => {
                 const pos = getConnectorPosition(node, connector);
@@ -276,7 +298,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.strokeStyle = 'black';
                 ctx.lineWidth = 1 / scale;
                 ctx.stroke();
+
+                if (connector.label) {
+                    ctx.fillStyle = '#555';
+                    const xOffset = connector.isInput ? 15 : -15;
+                    ctx.textAlign = connector.isInput ? 'left' : 'right';
+                    ctx.fillText(connector.label, pos.x + xOffset, pos.y + 4);
+                }
             });
+            ctx.textAlign = 'left';
         });
 
         ctx.restore();
@@ -288,7 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const dataTab = document.getElementById('data-tab');
 
         if (node) {
-            propertiesPanel.querySelector('.panel-tabs').style.display = 'flex';
+            propertiesPanel.classList.add('visible');
             let propertiesContent = `<h3>${node.type} Node</h3>`;
             node.properties.forEach(prop => {
                 propertiesContent += `<div class="property">`;
@@ -319,9 +349,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
         } else {
-            propertiesPanel.querySelector('.panel-tabs').style.display = 'none';
-            propertiesTab.innerHTML = '<p>No node selected</p>';
-            dataTab.innerHTML = '';
+            propertiesPanel.classList.remove('visible');
         }
     }
 
@@ -394,7 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switch(type) {
             case 'start':
                 baseNode.inputs = [];
-                baseNode.outputs = [{id: 'output_1', isInput: false}];
+                baseNode.outputs = [{id: 'output_1', isInput: false, label: 'Out'}];
                 baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'Start' });
                 break;
             case 'simple':
@@ -412,8 +440,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'branch':
                 baseNode.inputs = [{id: 'input_1', isInput: true}];
-                baseNode.outputs = [{id: 'output_1', isInput: false}, {id: 'output_2', isInput: false}];
-                baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'Branch' });
+                baseNode.outputs = [{id: 'output_true', isInput: false, label: 'True'}, {id: 'output_false', isInput: false, label: 'False'}];
+                baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'IF Condition' });
+                baseNode.properties.push({ name: 'path', label: 'Property Path', type: 'text', value: 'initialValue' });
+                baseNode.properties.push({ name: 'comparison', label: 'Comparison', type: 'select', value: 'equals', options: ['equals', 'notEquals', 'contains', 'greaterThan', 'lessThan'] });
+                baseNode.properties.push({ name: 'value', label: 'Value', type: 'text', value: 'hello world' });
+                break;
+            case 'merge':
+                baseNode.inputs = [{id: 'input_1', isInput: true}, {id: 'input_2', isInput: true}];
+                baseNode.outputs = [{id: 'output_1', isInput: false}];
+                baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'Merge' });
                 break;
         }
         return baseNode;
@@ -502,7 +538,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (draggingNode) {
-            // Snap to grid
             draggingNode.x = Math.round(draggingNode.x / GRID_SIZE) * GRID_SIZE;
             draggingNode.y = Math.round(draggingNode.y / GRID_SIZE) * GRID_SIZE;
         }
@@ -549,6 +584,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Initial setup
+    updatePropertiesPanel();
     resizeCanvas();
     loadWorkflow();
 });
