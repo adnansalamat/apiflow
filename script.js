@@ -81,17 +81,28 @@ document.addEventListener('DOMContentLoaded', () => {
         return path.split('.').reduce((acc, part) => acc && acc[part], obj);
     }
 
+    function resolveTemplates(templateString, data) {
+        return templateString.replace(/{{\s*([^}]+)\s*}}/g, (match, path) => {
+            const value = getValueFromPath(data, path.trim());
+            return value !== undefined ? value : '';
+        });
+    }
+
     async function executeNode(node, inputData) {
         let outputData = { ...inputData };
         try {
-            if (node.type === 'simple') {
+            if (node.type === 'start') {
+                outputData = { user: { id: 1, name: "Leanne Graham" }, message: "Workflow started" };
+            } else if (node.type === 'simple') {
                 outputData.processedBy = 'Simple Node';
                 outputData.timestamp = new Date().toISOString();
             } else if (node.type === 'http') {
                 const urlProp = node.properties.find(p => p.name === 'url');
                 const methodProp = node.properties.find(p => p.name === 'method');
                 const useProxyProp = node.properties.find(p => p.name === 'useProxy');
-                let targetUrl = urlProp.value;
+
+                let targetUrl = resolveTemplates(urlProp.value, inputData);
+
                 if (useProxyProp.value) {
                     targetUrl = CORS_PROXY_URL + encodeURIComponent(targetUrl);
                 }
@@ -173,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         runBtn.disabled = true;
-        await runFrom(startNode, { "initialValue": "hello world" });
+        await runFrom(startNode, {}); // Start with empty object, Start Node provides initial data
         console.log('Workflow execution finished.');
         runBtn.disabled = false;
     }
@@ -442,9 +453,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 baseNode.inputs = [{id: 'input_1', isInput: true}];
                 baseNode.outputs = [{id: 'output_true', isInput: false, label: 'True'}, {id: 'output_false', isInput: false, label: 'False'}];
                 baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'IF Condition' });
-                baseNode.properties.push({ name: 'path', label: 'Property Path', type: 'text', value: 'initialValue' });
+                baseNode.properties.push({ name: 'path', label: 'Property Path', type: 'text', value: 'user.id' });
                 baseNode.properties.push({ name: 'comparison', label: 'Comparison', type: 'select', value: 'equals', options: ['equals', 'notEquals', 'contains', 'greaterThan', 'lessThan'] });
-                baseNode.properties.push({ name: 'value', label: 'Value', type: 'text', value: 'hello world' });
+                baseNode.properties.push({ name: 'value', label: 'Value', type: 'text', value: '1' });
                 break;
             case 'merge':
                 baseNode.inputs = [{id: 'input_1', isInput: true}, {id: 'input_2', isInput: true}];
