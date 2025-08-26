@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let scale = 1;
     let panOffset = { x: 0, y: 0 };
     let isPanning = false;
+    let isSpacePressed = false;
     let lastMousePosition = { x: 0, y: 0 };
     let worldMousePosition = { x: 0, y: 0 };
 
@@ -572,7 +573,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     canvas.addEventListener('mousedown', (e) => {
-        if (e.button === 1) {
+        // Pan with middle mouse or spacebar + left mouse
+        if (e.button === 1 || (e.button === 0 && isSpacePressed)) {
             isPanning = true;
             lastMousePosition = { x: e.clientX, y: e.clientY };
             canvas.style.cursor = 'grabbing';
@@ -668,15 +670,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const wheel = e.deltaY < 0 ? 1 : -1;
         const zoom = Math.exp(wheel * zoomIntensity);
 
-        const worldPosBeforeZoom = {
-            x: (mouseX - panOffset.x) / scale,
-            y: (mouseY - panOffset.y) / scale,
-        };
-
         const newScale = Math.max(0.2, Math.min(3, scale * zoom));
 
-        panOffset.x = mouseX - worldPosBeforeZoom.x * newScale;
-        panOffset.y = mouseY - worldPosBeforeZoom.y * newScale;
+        const worldX = (mouseX - panOffset.x) / scale;
+        const worldY = (mouseY - panOffset.y) / scale;
+
+        panOffset.x = mouseX - worldX * newScale;
+        panOffset.y = mouseY - worldY * newScale;
 
         scale = newScale;
 
@@ -684,6 +684,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.addEventListener('keydown', (e) => {
+        if (e.key === ' ') {
+            isSpacePressed = true;
+            if (!isPanning) canvas.style.cursor = 'grab';
+        }
+
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
             return;
         }
@@ -693,6 +698,13 @@ document.addEventListener('DOMContentLoaded', () => {
             selectedNodeId = null;
             updatePropertiesPanel();
             draw();
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (e.key === ' ') {
+            isSpacePressed = false;
+            if (!isPanning) canvas.style.cursor = 'default';
         }
     });
 
