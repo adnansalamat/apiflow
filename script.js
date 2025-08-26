@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function resolveTemplates(templateString, data) {
+        if (typeof templateString !== 'string') return templateString;
         return templateString.replace(/{{\s*([^}]+)\s*}}/g, (match, path) => {
             const value = getValueFromPath(data, path.trim());
             return value !== undefined ? value : '';
@@ -99,6 +100,8 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (node.type === 'http') {
                 const urlProp = node.properties.find(p => p.name === 'url');
                 const methodProp = node.properties.find(p => p.name === 'method');
+                const headersProp = node.properties.find(p => p.name === 'headers');
+                const bodyProp = node.properties.find(p => p.name === 'body');
                 const useProxyProp = node.properties.find(p => p.name === 'useProxy');
 
                 let targetUrl = resolveTemplates(urlProp.value, inputData);
@@ -106,9 +109,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (useProxyProp.value) {
                     targetUrl = CORS_PROXY_URL + encodeURIComponent(targetUrl);
                 }
-                const response = await fetch(targetUrl, { method: methodProp.value });
+
+                const fetchOptions = {
+                    method: methodProp.value,
+                    headers: {},
+                };
+
+                if (headersProp && headersProp.value.length > 0) {
+                    headersProp.value.forEach(header => {
+                        if (header.key) {
+                            fetchOptions.headers[header.key] = resolveTemplates(header.value, inputData);
+                        }
+                    });
+                }
+
+                if (['POST', 'PUT', 'PATCH'].includes(fetchOptions.method)) {
+                    try {
+                        const resolvedBody = resolveTemplates(bodyProp.value, inputData);
+                        fetchOptions.body = JSON.stringify(JSON.parse(resolvedBody));
+                        if (!fetchOptions.headers['Content-Type']) {
+                            fetchOptions.headers['Content-Type'] = 'application/json';
+                        }
+                    } catch (e) {
+                        throw new Error(`Invalid JSON in request body: ${e.message}`);
+                    }
+                }
+
+                const response = await fetch(targetUrl, fetchOptions);
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                outputData = await response.json();
+
+                const responseText = await response.text();
+                try {
+                    outputData = JSON.parse(responseText);
+                } catch (e) {
+                    outputData = { response: responseText };
+                }
             }
             node.status = 'success';
             node.outputData = outputData;
@@ -184,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         runBtn.disabled = true;
-        await runFrom(startNode, {}); // Start with empty object, Start Node provides initial data
+        await runFrom(startNode, {});
         console.log('Workflow execution finished.');
         runBtn.disabled = false;
     }
@@ -331,14 +366,34 @@ document.addEventListener('DOMContentLoaded', () => {
         if (node) {
             propertiesPanel.classList.add('visible');
             let propertiesContent = `<h3>${node.type} Node</h3>`;
+
+            const methodProp = node.properties.find(p => p.name === 'method');
+            const showBody = node.type === 'http' && ['POST', 'PUT', 'PATCH'].includes(methodProp?.value);
+
             node.properties.forEach(prop => {
+                const isBodyAndHidden = prop.name === 'body' && !showBody;
+                if (isBodyAndHidden) return;
+
                 propertiesContent += `<div class="property">`;
                 if (prop.type === 'checkbox') {
                     propertiesContent += `<label><input type="checkbox" data-name="${prop.name}" ${prop.value ? 'checked' : ''}> ${prop.label}</label>`;
-                } else {
+                } else if (prop.type === 'keyvalue') {
+                    propertiesContent += `<label>${prop.label}</label>`;
+                    prop.value.forEach((item, index) => {
+                        propertiesContent += `
+                            <div class="kv-pair">
+                                <input type="text" placeholder="Key" data-name="${prop.name}" data-index="${index}" data-part="key" value="${item.key}">
+                                <input type="text" placeholder="Value" data-name="${prop.name}" data-index="${index}" data-part="value" value="${item.value}">
+                                <button class="remove-kv-btn" data-name="${prop.name}" data-index="${index}">-</button>
+                            </div>
+                        `;
+                    });
+                    propertiesContent += `<button class="add-kv-btn" data-name="${prop.name}">+ Add Header</button>`;
+                }
+                else {
                     propertiesContent += `<label for="prop-${prop.name}">${prop.label}</label>`;
-                    if (prop.type === 'textarea') {
-                        propertiesContent += `<textarea id="prop-${prop.name}" data-name="${prop.name}" rows="3">${prop.value}</textarea>`;
+                    if (prop.type === 'json' || prop.type === 'textarea') {
+                        propertiesContent += `<textarea id="prop-${prop.name}" data-name="${prop.name}" rows="5">${prop.value}</textarea>`;
                     } else if (prop.type === 'select') {
                         propertiesContent += `<select id="prop-${prop.name}" data-name="${prop.name}">`;
                         prop.options.forEach(option => {
@@ -366,14 +421,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     propertiesPanel.addEventListener('input', (e) => {
         const node = nodes.find(n => n.id === selectedNodeId);
-        if (node && e.target.dataset.name) {
-            const propName = e.target.dataset.name;
-            const prop = node.properties.find(p => p.name === propName);
-            if (prop) {
-                if (e.target.type === 'checkbox') prop.value = e.target.checked;
-                else prop.value = e.target.value;
-                if (prop.name === 'name') draw();
-            }
+        if (!node) return;
+
+        const propName = e.target.dataset.name;
+        if (!propName) return;
+
+        const prop = node.properties.find(p => p.name === propName);
+        if (!prop) return;
+
+        if (e.target.type === 'checkbox') {
+            prop.value = e.target.checked;
+        } else if (prop.type === 'keyvalue') {
+            const index = parseInt(e.target.dataset.index, 10);
+            const part = e.target.dataset.part;
+            prop.value[index][part] = e.target.value;
+        }
+        else {
+            prop.value = e.target.value;
+        }
+
+        if (prop.name === 'name') {
+            draw();
+        }
+        if (prop.name === 'method') {
+            updatePropertiesPanel();
         }
     });
 
@@ -384,6 +455,19 @@ document.addEventListener('DOMContentLoaded', () => {
             propertiesPanel.querySelector('.panel-tab-content.active').classList.remove('active');
             e.target.classList.add('active');
             document.getElementById(`${tabName}-tab`).classList.add('active');
+        } else if (e.target.classList.contains('add-kv-btn')) {
+            const node = nodes.find(n => n.id === selectedNodeId);
+            const propName = e.target.dataset.name;
+            const prop = node.properties.find(p => p.name === propName);
+            prop.value.push({key: '', value: ''});
+            updatePropertiesPanel();
+        } else if (e.target.classList.contains('remove-kv-btn')) {
+            const node = nodes.find(n => n.id === selectedNodeId);
+            const propName = e.target.dataset.name;
+            const prop = node.properties.find(p => p.name === propName);
+            const index = parseInt(e.target.dataset.index, 10);
+            prop.value.splice(index, 1);
+            updatePropertiesPanel();
         }
     });
 
@@ -445,8 +529,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 baseNode.inputs = [{id: 'input_1', isInput: true}];
                 baseNode.outputs = [{id: 'output_1', isInput: false}];
                 baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'HTTP Request' });
-                baseNode.properties.push({ name: 'method', label: 'Method', type: 'select', value: 'GET', options: ['GET', 'POST', 'PUT', 'DELETE'] });
+                baseNode.properties.push({ name: 'method', label: 'Method', type: 'select', value: 'GET', options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] });
                 baseNode.properties.push({ name: 'url', label: 'URL', type: 'textarea', value: 'https://jsonplaceholder.typicode.com/todos/1' });
+                baseNode.properties.push({ name: 'headers', label: 'Headers', type: 'keyvalue', value: [] });
+                baseNode.properties.push({ name: 'body', label: 'JSON Body', type: 'json', value: '{\n  "key": "value"\n}' });
                 baseNode.properties.push({ name: 'useProxy', label: 'Use CORS Proxy', type: 'checkbox', value: false });
                 break;
             case 'branch':
