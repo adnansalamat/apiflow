@@ -531,7 +531,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'HTTP Request' });
                 baseNode.properties.push({ name: 'method', label: 'Method', type: 'select', value: 'GET', options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] });
                 baseNode.properties.push({ name: 'url', label: 'URL', type: 'textarea', value: 'https://jsonplaceholder.typicode.com/todos/1' });
-                baseNode.properties.push({ name: 'headers', label: 'Headers', type: 'keyvalue', value: [] });
+                baseNode.properties.push({ name: 'headers', label: 'Headers', type: 'keyvalue', value: [{key: 'Content-Type', value: 'application/json'}] });
                 baseNode.properties.push({ name: 'body', label: 'JSON Body', type: 'json', value: '{\n  "key": "value"\n}' });
                 baseNode.properties.push({ name: 'useProxy', label: 'Use CORS Proxy', type: 'checkbox', value: false });
                 break;
@@ -672,6 +672,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.addEventListener('keydown', (e) => {
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+            return;
+        }
         if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodeId) {
             nodes = nodes.filter(node => node.id !== selectedNodeId);
             connections = connections.filter(conn => conn.from.nodeId !== selectedNodeId && conn.to.nodeId !== selectedNodeId);
