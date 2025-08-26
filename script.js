@@ -660,14 +660,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
         const zoomIntensity = 0.1;
         const wheel = e.deltaY < 0 ? 1 : -1;
         const zoom = Math.exp(wheel * zoomIntensity);
+
+        const worldPosBeforeZoom = {
+            x: (mouseX - panOffset.x) / scale,
+            y: (mouseY - panOffset.y) / scale,
+        };
+
         const newScale = Math.max(0.2, Math.min(3, scale * zoom));
-        const worldPosBeforeZoom = getTransformedPoint(e.clientX, e.clientY);
-        panOffset.x = e.clientX - worldPosBeforeZoom.x * newScale;
-        panOffset.y = e.clientY - worldPosBeforeZoom.y * newScale;
+
+        panOffset.x = mouseX - worldPosBeforeZoom.x * newScale;
+        panOffset.y = mouseY - worldPosBeforeZoom.y * newScale;
+
         scale = newScale;
+
         draw();
     });
 
