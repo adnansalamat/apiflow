@@ -13,6 +13,7 @@
                 <div class="node-palette-item" draggable="true" data-node-type="start">Start</div>
                 <div class="node-palette-item" draggable="true" data-node-type="simple">Simple Node</div>
                 <div class="node-palette-item" draggable="true" data-node-type="http">HTTP Request</div>
+                <div class="node-palette-item" draggable="true" data-node-type="branch">Branch</div>
             </div>
             <div class="sidebar-section">
                 <button id="save-btn">Save</button>
@@ -24,7 +25,18 @@
             <canvas id="canvas"></canvas>
         </div>
         <div id="properties-panel">
-            <p>No node selected</p>
+            <div class="panel-tabs">
+                <button class="panel-tab-btn active" data-tab="properties">Properties</button>
+                <button class="panel-tab-btn" data-tab="data">Output Data</button>
+            </div>
+            <div class="panel-content">
+                <div id="properties-tab" class="panel-tab-content active">
+                    <p>No node selected</p>
+                </div>
+                <div id="data-tab" class="panel-tab-content">
+                    <p>Run a workflow to see data</p>
+                </div>
+            </div>
         </div>
     </div>
     <script src="script.js"></script>

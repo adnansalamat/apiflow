@@ -4,9 +4,12 @@
     --node-start-header-bg: #34a853; /* Green */
     --node-simple-header-bg: #4285f4; /* Blue */
     --node-http-header-bg: #fbbc05; /* Yellow */
+    --node-branch-header-bg: #7e57c2; /* Purple */
     --node-text-color: white;
     --node-border-color: #ccc;
     --node-selected-color: orange;
+    --node-success-color: #34a853;
+    --node-failed-color: #ea4335;
 }
 
 body, html {
@@ -116,10 +119,59 @@ body, html {
     color: #555;
 }
 
-#properties-panel input {
+#properties-panel {
+    display: flex;
+    flex-direction: column;
+}
+
+.panel-tabs {
+    display: flex;
+    border-bottom: 1px solid #ccc;
+}
+
+.panel-tab-btn {
+    padding: 10px 15px;
+    border: none;
+    background-color: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    border-bottom: 3px solid transparent;
+}
+
+.panel-tab-btn.active {
+    border-bottom: 3px solid #4285f4;
+    font-weight: bold;
+}
+
+.panel-content {
+    flex-grow: 1;
+    padding: 15px;
+    overflow-y: auto;
+}
+
+.panel-tab-content {
+    display: none;
+}
+
+.panel-tab-content.active {
+    display: block;
+}
+
+#properties-panel input,
+#properties-panel textarea,
+#properties-panel select {
     width: 100%;
     padding: 8px;
     box-sizing: border-box;
     border: 1px solid #ddd;
     border-radius: 4px;
+}
+
+#data-tab pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    background-color: #eee;
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 12px;
 }

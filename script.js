@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const runBtn = document.getElementById('run-btn');
 
     const CORS_PROXY_URL = 'https://corsproxy.io/?';
+    const GRID_SIZE = 20;
 
     const style = getComputedStyle(document.documentElement);
     const nodeColors = {
@@ -17,11 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
         border: style.getPropertyValue('--node-border-color'),
         selected: style.getPropertyValue('--node-selected-color'),
         executing: 'lime',
+        success: style.getPropertyValue('--node-success-color'),
+        failed: style.getPropertyValue('--node-failed-color'),
         header: {
             default: style.getPropertyValue('--node-header-bg'),
             start: style.getPropertyValue('--node-start-header-bg'),
             simple: style.getPropertyValue('--node-simple-header-bg'),
             http: style.getPropertyValue('--node-http-header-bg'),
+            branch: style.getPropertyValue('--node-branch-header-bg'),
         }
     };
 
@@ -48,14 +52,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const headerHeight = 24;
 
     function saveWorkflow() {
-        const workflow = {
-            nodes: nodes,
-            connections: connections,
-            panOffset: panOffset,
-            scale: scale
-        };
+        const workflow = { nodes, connections, panOffset, scale };
         localStorage.setItem('n8n-clone-workflow', JSON.stringify(workflow));
-        console.log('Workflow saved!');
         alert('Workflow saved!');
     }
 
@@ -64,17 +62,84 @@ document.addEventListener('DOMContentLoaded', () => {
         if (savedWorkflow) {
             const workflow = JSON.parse(savedWorkflow);
             nodes = workflow.nodes;
+            nodes.forEach(node => {
+                if (node.outputData === undefined) node.outputData = null;
+                if (node.status === undefined) node.status = 'idle';
+            });
             connections = workflow.connections;
             panOffset = workflow.panOffset || { x: 0, y: 0 };
             scale = workflow.scale || 1;
             selectedNodeId = null;
             updatePropertiesPanel();
             draw();
-            console.log('Workflow loaded!');
+        }
+    }
+
+    async function executeNode(node, inputData) {
+        let outputData = { ...inputData };
+        try {
+            if (node.type === 'simple') {
+                outputData.processedBy = 'Simple Node';
+                outputData.timestamp = new Date().toISOString();
+            } else if (node.type === 'http') {
+                const urlProp = node.properties.find(p => p.name === 'url');
+                const methodProp = node.properties.find(p => p.name === 'method');
+                const useProxyProp = node.properties.find(p => p.name === 'useProxy');
+                let targetUrl = urlProp.value;
+                if (useProxyProp.value) {
+                    targetUrl = CORS_PROXY_URL + encodeURIComponent(targetUrl);
+                }
+                const response = await fetch(targetUrl, { method: methodProp.value });
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                outputData = await response.json();
+            }
+            node.status = 'success';
+            node.outputData = outputData;
+            return outputData;
+        } catch (error) {
+            console.error(`Error executing ${node.properties.find(p => p.name === 'name').value}:`, error);
+            node.status = 'failed';
+            node.outputData = { error: error.message };
+            throw error;
+        }
+    }
+
+    async function runFrom(node, inputData) {
+        if (!node) return;
+
+        executingNodeIds.push(node.id);
+        draw();
+
+        try {
+            const outputData = await executeNode(node, inputData);
+
+            if (node.id === selectedNodeId) updatePropertiesPanel();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            executingNodeIds = executingNodeIds.filter(id => id !== node.id);
+            draw();
+
+            const outgoingConnections = connections.filter(c => c.from.nodeId === node.id);
+            const nextTasks = outgoingConnections.map(conn => {
+                const nextNode = nodes.find(n => n.id === conn.to.nodeId);
+                return runFrom(nextNode, outputData);
+            });
+
+            await Promise.all(nextTasks);
+
+        } catch (error) {
+            executingNodeIds = executingNodeIds.filter(id => id !== node.id);
+            if (node.id === selectedNodeId) updatePropertiesPanel();
+            draw();
         }
     }
 
     async function executeWorkflow() {
+        nodes.forEach(n => {
+            n.outputData = null;
+            n.status = 'idle';
+        });
+        draw();
+
         const startNode = nodes.find(n => n.type === 'start');
         if (!startNode) {
             alert('Cannot execute workflow without a Start node.');
@@ -82,60 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         runBtn.disabled = true;
-        let executionPath = [];
-        let currentNode = startNode;
-        let visited = new Set();
-
-        while(currentNode) {
-            if (visited.has(currentNode.id)) {
-                console.error("Cycle detected in workflow. Aborting.");
-                alert("Execution failed: Cycle detected in workflow.");
-                runBtn.disabled = false;
-                return;
-            }
-            visited.add(currentNode.id);
-            executionPath.push(currentNode);
-            const connection = connections.find(c => c.from.nodeId === currentNode.id);
-            currentNode = connection ? nodes.find(n => n.id === connection.to.nodeId) : null;
-        }
-
-        for (const node of executionPath) {
-            const nodeName = node.properties.find(p => p.name === 'name').value;
-            console.log(`%cExecuting node: ${nodeName}`, 'font-weight: bold; color: blue;');
-
-            executingNodeIds.push(node.id);
-            draw();
-
-            if (node.type === 'http') {
-                const urlProp = node.properties.find(p => p.name === 'url');
-                const methodProp = node.properties.find(p => p.name === 'method');
-                const useProxyProp = node.properties.find(p => p.name === 'useProxy');
-
-                let targetUrl = urlProp.value;
-                if (useProxyProp.value) {
-                    targetUrl = CORS_PROXY_URL + encodeURIComponent(targetUrl);
-                    console.log(`Using CORS proxy. Final URL: ${targetUrl}`);
-                }
-
-                try {
-                    const response = await fetch(targetUrl, { method: methodProp.value });
-                    console.log(`Response from ${nodeName}:`, response.status, response.statusText);
-                    const data = await response.text();
-                    console.log('Response data:', data.substring(0, 200) + '...'); // Log first 200 chars
-                } catch (error) {
-                    console.error(`Error executing ${nodeName}:`, error);
-                }
-
-            } else {
-                // Generic execution for other nodes
-                console.log('Properties:', node.properties);
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 500));
-            executingNodeIds = executingNodeIds.filter(id => id !== node.id);
-            draw();
-        }
-
+        await runFrom(startNode, {});
         console.log('Workflow execution finished.');
         runBtn.disabled = false;
     }
@@ -149,8 +161,12 @@ document.addEventListener('DOMContentLoaded', () => {
     runBtn.addEventListener('click', executeWorkflow);
 
     function getConnectorPosition(node, connector) {
-        const x = node.x + (connector.type === 'input' ? 0 : node.width);
-        const y = node.y + headerHeight + (node.height - headerHeight) / 2;
+        const connectorList = connector.isInput ? node.inputs : node.outputs;
+        const index = connectorList.findIndex(c => c.id === connector.id);
+        const count = connectorList.length;
+
+        const x = node.x + (connector.isInput ? 0 : node.width);
+        const y = node.y + (node.height * (index + 1) / (count + 1));
         return { x, y };
     }
 
@@ -162,6 +178,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.addEventListener('resize', resizeCanvas);
 
+    function drawGrid() {
+        ctx.strokeStyle = '#ddd';
+        ctx.lineWidth = 1 / scale;
+
+        const left = -panOffset.x / scale;
+        const top = -panOffset.y / scale;
+        const right = (canvas.width - panOffset.x) / scale;
+        const bottom = (canvas.height - panOffset.y) / scale;
+
+        const startX = Math.floor(left / GRID_SIZE) * GRID_SIZE;
+        const startY = Math.floor(top / GRID_SIZE) * GRID_SIZE;
+
+        ctx.beginPath();
+        for (let x = startX; x < right; x += GRID_SIZE) {
+            ctx.moveTo(x, top);
+            ctx.lineTo(x, bottom);
+        }
+        for (let y = startY; y < bottom; y += GRID_SIZE) {
+            ctx.moveTo(left, right);
+            ctx.lineTo(right, y);
+        }
+        ctx.stroke();
+    }
+
     function draw() {
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -172,19 +212,25 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.translate(panOffset.x, panOffset.y);
         ctx.scale(scale, scale);
 
+        drawGrid();
+
         connections.forEach(conn => {
-            ctx.beginPath();
             const fromNode = nodes.find(n => n.id === conn.from.nodeId);
             const toNode = nodes.find(n => n.id === conn.to.nodeId);
             if (fromNode && toNode) {
-                const fromPos = getConnectorPosition(fromNode, fromNode.outputs[0]);
-                const toPos = getConnectorPosition(toNode, toNode.inputs[0]);
-                ctx.moveTo(fromPos.x, fromPos.y);
-                ctx.lineTo(toPos.x, toPos.y);
+                const fromConnector = fromNode.outputs.find(c => c.id === conn.from.connectorId);
+                const toConnector = toNode.inputs.find(c => c.id === conn.to.connectorId);
+                if(fromConnector && toConnector) {
+                    ctx.beginPath();
+                    const fromPos = getConnectorPosition(fromNode, fromConnector);
+                    const toPos = getConnectorPosition(toNode, toConnector);
+                    ctx.moveTo(fromPos.x, fromPos.y);
+                    ctx.lineTo(toPos.x, toPos.y);
+                    ctx.strokeStyle = 'black';
+                    ctx.lineWidth = 2 / scale;
+                    ctx.stroke();
+                }
             }
-            ctx.strokeStyle = 'black';
-            ctx.lineWidth = 2 / scale;
-            ctx.stroke();
         });
 
         if (isConnecting && connectionStart.node) {
@@ -204,13 +250,14 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillRect(node.x, node.y, node.width, headerHeight);
 
             let borderColor = nodeColors.border;
-            if (executingNodeIds.includes(node.id)) {
-                borderColor = nodeColors.executing;
-            } else if (node.id === selectedNodeId) {
-                borderColor = nodeColors.selected;
-            }
+            if (node.status === 'failed') borderColor = nodeColors.failed;
+            else if (node.status === 'success') borderColor = nodeColors.success;
+
+            if (executingNodeIds.includes(node.id)) borderColor = nodeColors.executing;
+            else if (node.id === selectedNodeId) borderColor = nodeColors.selected;
+
             ctx.strokeStyle = borderColor;
-            ctx.lineWidth = ((executingNodeIds.includes(node.id) || node.id === selectedNodeId) ? 3 : 1) / scale;
+            ctx.lineWidth = (borderColor !== nodeColors.border ? 3 : 1) / scale;
             ctx.strokeRect(node.x, node.y, node.width, node.height);
 
             ctx.fillStyle = nodeColors.text;
@@ -219,6 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const displayName = node.properties.find(p => p.name === 'name')?.value || node.type;
             ctx.fillText(displayName, node.x + node.width / 2, node.y + headerHeight / 2 + (5 / scale));
             ctx.textAlign = 'left';
+
             [...node.inputs, ...node.outputs].forEach(connector => {
                 const pos = getConnectorPosition(node, connector);
                 ctx.beginPath();
@@ -236,36 +284,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updatePropertiesPanel() {
         const node = nodes.find(n => n.id === selectedNodeId);
+        const propertiesTab = document.getElementById('properties-tab');
+        const dataTab = document.getElementById('data-tab');
+
         if (node) {
-            propertiesPanel.classList.add('visible');
-            let content = `<h3>${node.type} Node</h3>`;
-
+            propertiesPanel.querySelector('.panel-tabs').style.display = 'flex';
+            let propertiesContent = `<h3>${node.type} Node</h3>`;
             node.properties.forEach(prop => {
-                content += `<div class="property">`;
-
+                propertiesContent += `<div class="property">`;
                 if (prop.type === 'checkbox') {
-                    content += `<label><input type="checkbox" data-name="${prop.name}" ${prop.value ? 'checked' : ''}> ${prop.label}</label>`;
+                    propertiesContent += `<label><input type="checkbox" data-name="${prop.name}" ${prop.value ? 'checked' : ''}> ${prop.label}</label>`;
                 } else {
-                    content += `<label for="prop-${prop.name}">${prop.label}</label>`;
+                    propertiesContent += `<label for="prop-${prop.name}">${prop.label}</label>`;
                     if (prop.type === 'textarea') {
-                        content += `<textarea id="prop-${prop.name}" data-name="${prop.name}" rows="3">${prop.value}</textarea>`;
+                        propertiesContent += `<textarea id="prop-${prop.name}" data-name="${prop.name}" rows="3">${prop.value}</textarea>`;
                     } else if (prop.type === 'select') {
-                        content += `<select id="prop-${prop.name}" data-name="${prop.name}">`;
+                        propertiesContent += `<select id="prop-${prop.name}" data-name="${prop.name}">`;
                         prop.options.forEach(option => {
-                            content += `<option value="${option}" ${option === prop.value ? 'selected' : ''}>${option}</option>`;
+                            propertiesContent += `<option value="${option}" ${option === prop.value ? 'selected' : ''}>${option}</option>`;
                         });
-                        content += `</select>`;
+                        propertiesContent += `</select>`;
                     } else {
-                        content += `<input type="text" id="prop-${prop.name}" data-name="${prop.name}" value="${prop.value}">`;
+                        propertiesContent += `<input type="text" id="prop-${prop.name}" data-name="${prop.name}" value="${prop.value}">`;
                     }
                 }
-                content += `</div>`;
+                propertiesContent += `</div>`;
             });
+            propertiesTab.innerHTML = propertiesContent;
 
-            propertiesPanel.innerHTML = content;
+            if (node.outputData) {
+                dataTab.innerHTML = `<pre>${JSON.stringify(node.outputData, null, 2)}</pre>`;
+            } else {
+                dataTab.innerHTML = '<p>Run a workflow to see data</p>';
+            }
+
         } else {
-            propertiesPanel.classList.remove('visible');
-            propertiesPanel.innerHTML = '<p>No node selected</p>';
+            propertiesPanel.querySelector('.panel-tabs').style.display = 'none';
+            propertiesTab.innerHTML = '<p>No node selected</p>';
+            dataTab.innerHTML = '';
         }
     }
 
@@ -275,16 +331,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const propName = e.target.dataset.name;
             const prop = node.properties.find(p => p.name === propName);
             if (prop) {
-                if (e.target.type === 'checkbox') {
-                    prop.value = e.target.checked;
-                } else {
-                    prop.value = e.target.value;
-                }
-
-                if (prop.name === 'name') {
-                    draw();
-                }
+                if (e.target.type === 'checkbox') prop.value = e.target.checked;
+                else prop.value = e.target.value;
+                if (prop.name === 'name') draw();
             }
+        }
+    });
+
+    propertiesPanel.addEventListener('click', (e) => {
+        if (e.target.classList.contains('panel-tab-btn')) {
+            const tabName = e.target.dataset.tab;
+            propertiesPanel.querySelector('.panel-tab-btn.active').classList.remove('active');
+            propertiesPanel.querySelector('.panel-tab-content.active').classList.remove('active');
+            e.target.classList.add('active');
+            document.getElementById(`${tabName}-tab`).classList.add('active');
         }
     });
 
@@ -292,10 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rect = canvas.getBoundingClientRect();
         const screenX = x - rect.left;
         const screenY = y - rect.top;
-        return {
-            x: (screenX - panOffset.x) / scale,
-            y: (screenY - panOffset.y) / scale
-        };
+        return { x: (screenX - panOffset.x) / scale, y: (screenY - panOffset.y) / scale };
     }
 
     function getConnectorAtPoint(worldX, worldY) {
@@ -329,23 +386,34 @@ document.addEventListener('DOMContentLoaded', () => {
             y: y - nodeHeight / 2,
             width: nodeWidth,
             height: nodeHeight,
-            inputs: type !== 'start' ? [{ id: 'input_1', type: 'input' }] : [],
-            outputs: [{ id: 'output_1', type: 'output' }],
-            properties: []
+            properties: [],
+            outputData: null,
+            status: 'idle'
         };
 
         switch(type) {
             case 'start':
+                baseNode.inputs = [];
+                baseNode.outputs = [{id: 'output_1', isInput: false}];
                 baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'Start' });
                 break;
             case 'simple':
+                baseNode.inputs = [{id: 'input_1', isInput: true}];
+                baseNode.outputs = [{id: 'output_1', isInput: false}];
                 baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'Simple Node' });
                 break;
             case 'http':
-                 baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'HTTP Request' });
-                 baseNode.properties.push({ name: 'method', label: 'Method', type: 'select', value: 'GET', options: ['GET', 'POST', 'PUT', 'DELETE'] });
-                 baseNode.properties.push({ name: 'url', label: 'URL', type: 'textarea', value: 'https://example.com' });
-                 baseNode.properties.push({ name: 'useProxy', label: 'Use CORS Proxy', type: 'checkbox', value: false });
+                baseNode.inputs = [{id: 'input_1', isInput: true}];
+                baseNode.outputs = [{id: 'output_1', isInput: false}];
+                baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'HTTP Request' });
+                baseNode.properties.push({ name: 'method', label: 'Method', type: 'select', value: 'GET', options: ['GET', 'POST', 'PUT', 'DELETE'] });
+                baseNode.properties.push({ name: 'url', label: 'URL', type: 'textarea', value: 'https://jsonplaceholder.typicode.com/todos/1' });
+                baseNode.properties.push({ name: 'useProxy', label: 'Use CORS Proxy', type: 'checkbox', value: false });
+                break;
+            case 'branch':
+                baseNode.inputs = [{id: 'input_1', isInput: true}];
+                baseNode.outputs = [{id: 'output_1', isInput: false}, {id: 'output_2', isInput: false}];
+                baseNode.properties.push({ name: 'name', label: 'Name', type: 'text', value: 'Branch' });
                 break;
         }
         return baseNode;
@@ -382,7 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
         worldMousePosition = getTransformedPoint(e.clientX, e.clientY);
 
         const connectorInfo = getConnectorAtPoint(worldMousePosition.x, worldMousePosition.y);
-        if (connectorInfo && connectorInfo.connector.type === 'output') {
+        if (connectorInfo && !connectorInfo.connector.isInput) {
             isConnecting = true;
             connectionStart = connectorInfo;
             selectedNodeId = null;
@@ -433,9 +501,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        if (draggingNode) {
+            // Snap to grid
+            draggingNode.x = Math.round(draggingNode.x / GRID_SIZE) * GRID_SIZE;
+            draggingNode.y = Math.round(draggingNode.y / GRID_SIZE) * GRID_SIZE;
+        }
+
         if (isConnecting) {
             const endConnectorInfo = getConnectorAtPoint(worldMousePosition.x, worldMousePosition.y);
-            if (endConnectorInfo && endConnectorInfo.connector.type === 'input' && endConnectorInfo.node.id !== connectionStart.node.id) {
+            if (endConnectorInfo && endConnectorInfo.connector.isInput && endConnectorInfo.node.id !== connectionStart.node.id) {
                 const alreadyConnected = connections.some(conn => conn.to.nodeId === endConnectorInfo.node.id && conn.to.connectorId === endConnectorInfo.connector.id);
                 if (!alreadyConnected) {
                      connections.push({
