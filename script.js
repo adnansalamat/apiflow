@@ -159,7 +159,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function runFrom(node, inputData) {
         if (!node) return;
-
         executingNodeIds.push(node.id);
         draw();
 
@@ -200,6 +199,8 @@ document.addEventListener('DOMContentLoaded', () => {
             await Promise.all(nextTasks);
 
         } catch (error) {
+            // This catch block is for errors thrown by executeNode
+            console.error("Workflow execution failed at this node.", error);
             executingNodeIds = executingNodeIds.filter(id => id !== node.id);
             if (node.id === selectedNodeId) updatePropertiesPanel();
             draw();
@@ -636,6 +637,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        worldMousePosition = getTransformedPoint(e.clientX, e.clientY);
+
         if (draggingNode) {
             draggingNode.x = Math.round(draggingNode.x / GRID_SIZE) * GRID_SIZE;
             draggingNode.y = Math.round(draggingNode.y / GRID_SIZE) * GRID_SIZE;
@@ -646,7 +649,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (endConnectorInfo && endConnectorInfo.connector.isInput && endConnectorInfo.node.id !== connectionStart.node.id) {
                 const alreadyConnected = connections.some(conn => conn.to.nodeId === endConnectorInfo.node.id && conn.to.connectorId === endConnectorInfo.connector.id);
                 if (!alreadyConnected) {
-                     connections.push({
+                    connections.push({
                         from: { nodeId: connectionStart.node.id, connectorId: connectionStart.connector.id },
                         to: { nodeId: endConnectorInfo.node.id, connectorId: endConnectorInfo.connector.id },
                     });
