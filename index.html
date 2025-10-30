@@ -4,22 +4,38 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>n8n Clone</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <header>
+        <div class="logo">
+            <img src="https://n8n.io/assets/images/logo-n8n.svg" alt="n8n logo" />
+            <h1>n8n Clone</h1>
+        </div>
+        <div class="header-links">
+            <a href="https://n8n.io" target="_blank">Visit n8n.io</a>
+        </div>
+    </header>
     <div id="app">
         <div id="sidebar">
-            <div class="sidebar-section">
-                <div class="node-palette-item" draggable="true" data-node-type="start">Start</div>
-                <div class="node-palette-item" draggable="true" data-node-type="simple">Simple Node</div>
-                <div class="node-palette-item" draggable="true" data-node-type="http">HTTP Request</div>
-                <div class="node-palette-item" draggable="true" data-node-type="branch">Branch</div>
-                <div class="node-palette-item" draggable="true" data-node-type="merge">Merge</div>
+            <div class="sidebar-header">
+                <h3>Nodes</h3>
             </div>
             <div class="sidebar-section">
-                <button id="save-btn">Save</button>
-                <button id="load-btn">Load</button>
-                <button id="run-btn" class="run-button">Run</button>
+                <div class="node-palette-item" draggable="true" data-node-type="start"><i class="fas fa-play-circle"></i> Start</div>
+                <div class="node-palette-item" draggable="true" data-node-type="simple"><i class="fas fa-cube"></i> Simple Node</div>
+                <div class="node-palette-item" draggable="true" data-node-type="http"><i class="fas fa-globe"></i> HTTP Request</div>
+                <div class="node-palette-item" draggable="true" data-node-type="branch"><i class="fas fa-code-branch"></i> Branch</div>
+                <div class="node-palette-item" draggable="true" data-node-type="merge"><i class="fas fa-compress-arrows-alt"></i> Merge</div>
+                <div class="node-palette-item" draggable="true" data-node-type="set"><i class="fas fa-edit"></i> Set</div>
+                <div class="node-palette-item" draggable="true" data-node-type="function"><i class="fas fa-code"></i> Function</div>
+                <div class="node-palette-item" draggable="true" data-node-type="switch"><i class="fas fa-random"></i> Switch</div>
+            </div>
+            <div class="sidebar-section execution-controls">
+                <button id="save-btn"><i class="fas fa-save"></i> Save</button>
+                <button id="load-btn"><i class="fas fa-folder-open"></i> Load</button>
+                <button id="run-btn" class="run-button"><i class="fas fa-play"></i> Run</button>
             </div>
         </div>
         <div id="canvas-container">
@@ -40,6 +56,6 @@
             </div>
         </div>
     </div>
-    <script src="script.js"></script>
+    <script src="script.js" type="module"></script>
 </body>
 </html>
